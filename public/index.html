@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>本格AIチャット</title>
+    <script src="https://tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col">
+
+    <!-- ヘッダー -->
+    <header class="bg-blue-600 text-white p-4 flex justify-between items-center shadow">
+        <h1 class="text-xl font-bold">本格AIチャット</h1>
+        <button id="clearBtn" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-sm transition">会話をクリア</button>
+    </header>
+
+    <!-- チャット表示エリア -->
+    <main id="chatBox" class="flex-1 p-4 overflow-y-auto space-y-4 max-w-3xl w-full mx-auto"></main>
+
+    <!-- 入力エリア -->
+    <footer class="bg-white p-4 border-t shadow-inner">
+        <div class="max-w-3xl mx-auto flex gap-2">
+            <input id="userInput" type="text" placeholder="メッセージを入力..." class="flex-1 border rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button id="sendBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded transition">送信</button>
+        </div>
+    </footer>
+
+    <script>
+        const chatBox = document.getElementById('chatBox');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const clearBtn = document.getElementById('clearBtn');
+
+        // 会話履歴を保持する配列 (OpenRouterが要求するメッセージ形式)
+        let chatHistory = [];
+
+        // --- クッキー操作用のユーティリティ関数 ---
+        function setCookie(name, value, days) {
+            const date = new Date();
+            date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+            // 本格的な運用として、エンコードとセキュリティ属性を付与
+            document.cookie = `${name}=${encodeURIComponent(JSON.stringify(value))};expires=${date.toUTCString()};path=/;SameSite=Strict`;
+        }
+
+        function getCookie(name) {
+            const matches = document.cookie.match(new RegExp(`(?:^|; )${name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, '\\$1')}=([^;]*)`));
+            return matches ? JSON.parse(decodeURIComponent(matches[1])) : null;
+        }
+
+        // --- 初期化処理 ---
+        function init() {
+            const savedHistory = getCookie('ai_chat_history');
+            if (savedHistory) {
+                chatHistory = savedHistory;
+                chatHistory.forEach(msg => appendMessage(msg.role, msg.content));
+            } else {
+                // 初期メッセージ
+                const welcome = "こんにちは！何かお手伝いできることはありますか？";
+                appendMessage('assistant', welcome);
+                chatHistory.push({ role: 'assistant', content: welcome });
+                setCookie('ai_chat_history', chatHistory, 7);
+            }
+        }
+
+        // 画面にメッセージを追加
+        function appendMessage(role, text) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `flex ${role === 'user' ? 'justify-end' : 'justify-start'}`;
+            
+            const innerDiv = document.createElement('div');
+            innerDiv.className = `max-w-md p-3 rounded-lg shadow-sm ${role === 'user' ? 'bg-blue-500 text-white' : 'bg-white text-gray-800'}`;
+            innerDiv.innerText = text;
+            
+            msgDiv.appendChild(innerDiv);
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // --- イベント送信処理 ---
+        async function handleSend() {
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            appendMessage('user', text);
+            userInput.value = '';
+            
+            chatHistory.push({ role: 'user', content: text });
+            setCookie('ai_chat_history', chatHistory, 7); // クッキーに即時保存
+
+            try {
+                // 自作バックエンドのAPIを叩く
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: chatHistory })
+                });
+                
+                const data = await response.json();
+                
+                if (data.message) {
+                    appendMessage('assistant', data.message);
+                    chatHistory.push({ role: 'assistant', content: data.message });
+                    setCookie('ai_chat_history', chatHistory, 7); // 返答もクッキーに保存
+                } else {
+                    appendMessage('assistant', 'エラーが発生しました。');
+                }
+            } catch (error) {
+                appendMessage('assistant', '通信エラーが発生しました。');
+            }
+        }
+
+        sendBtn.addEventListener('click', handleSend);
+        userInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleSend(); });
+        
+        clearBtn.addEventListener('click', () => {
+            document.cookie = "ai_chat_history=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+            chatBox.innerHTML = '';
+            chatHistory = [];
+            init();
+        });
+
+        init();
+    </script>
+</body>
+</html>
